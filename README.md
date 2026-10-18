@@ -1,325 +1,73 @@
-# CryptoWatch — Application de suivi des crypto-monnaies
+# Workshop 2 — Sécurité du code source : SonarQube et Semgrep
 
-> Projet Fin de Module — Développement Front-End et Frameworks  
-> Prof. N. El Bahri — Année Universitaire 2025-2026  
-> Groupe G3
+**Projet :** CryptoWatch (Next.js / TypeScript)  
+**Groupe :** GR 5 — Azzeddine Salmoun, Toufik Kharkhor et Wail Chairi Mahjor  
+**Thème :** Analyse statique de sécurité (SAST) avec GitHub Actions
 
----
+## 1. Objectif
 
-## Vue d'ensemble
+L’objectif de ce workshop est d’intégrer l’analyse statique de sécurité (SAST) dans CryptoWatch, d’exécuter SonarQube et Semgrep dans un pipeline GitHub Actions, puis de comparer les résultats obtenus avant et après l’introduction d’un exemple de code volontairement vulnérable.
 
-CryptoWatch est une application web full-stack permettant aux utilisateurs de suivre l'évolution des crypto-monnaies en temps réel, consulter les tendances du marché, gérer leur portefeuille personnel et recevoir des alertes personnalisées sur leurs actifs favoris.
+## 2. Environnement utilisé
 
----
+- Projet : CryptoWatch (Next.js / TypeScript).
+- Outils : SonarQube Community, Semgrep, Docker et Git.
+- Intégration continue : GitHub Actions avec un runner self-hosted Windows.
+- Le workflow installe les dépendances, exécute ESLint et la compilation Next.js, puis lance l’analyse SonarQube et le scan Semgrep.
+- Le rapport Semgrep est enregistré au format JSON et publié comme artefact GitHub Actions.
 
-## Stack technique
+## 3. Résultats SonarQube
 
-| Couche | Technologie | Rôle |
+Lors de l’analyse initiale, la Quality Gate était passée. Le tableau de bord indiquait 0 problème de sécurité déclaré, 4 problèmes de fiabilité, 22 problèmes de maintenabilité, 2,2 % de duplication et 0 % de couverture.
+
+<img width="610" height="315" alt="01-sonarqube-dashboard-initial" src="https://github.com/user-attachments/assets/edba94ce-94a4-4499-91d5-111d705cf748" />
+
+
+Après l’ajout du composant de test `SastVulnerabilityLab.tsx`, SonarQube a signalé une issue de maintenabilité (règle TypeScript S6759 : rendre les propriétés du composant en lecture seule). La capture disponible ne montre pas de détection XSS par SonarQube. La Quality Gate du nouveau code a échoué avec une nouvelle issue et une couverture de 0 % sur les nouvelles lignes.
+
+<img width="658" height="364" alt="02-sonarqube-maintainability-issue" src="https://github.com/user-attachments/assets/20317838-fa2d-4c5f-a5fa-c5431cad860b" />
+
+
+<img width="1456" height="757" alt="03-sonarqube-quality-gate-new-code" src="https://github.com/user-attachments/assets/91c3347a-fadc-429f-8db8-2da64a124a62" />
+
+
+## 4. Test de vulnérabilité et résultats Semgrep
+
+Un composant isolé, `SastVulnerabilityLab.tsx`, a été ajouté sur la branche de test `test/sast-vulnerabilities`. La version vulnérable utilisait `dangerouslySetInnerHTML` avec une valeur `userInput`. Si cette valeur contient du HTML non fiable, ce modèle peut entraîner une vulnérabilité Cross-Site Scripting (XSS).
+
+Semgrep a détecté ce motif et signalé un risque potentiel de XSS associé à **CWE-79**. Le scan affiché a terminé avec succès et a analysé 69 fichiers. L’artefact JSON contient également des avertissements concernant les références d’actions GitHub mutables et des recommandations de sécurité pour Docker Compose.
+
+<img width="614" height="426" alt="04-semgrep-scan-summary" src="https://github.com/user-attachments/assets/ab12a462-8254-4751-a91d-105f6ef100cc" />
+
+
+<img width="1360" height="597" alt="05-semgrep-xss-cwe79-detail" src="https://github.com/user-attachments/assets/31d3e3ad-5c2a-4a32-89c0-3af310031515" />
+
+
+## 5. Comparaison des outils
+
+| Élément observé | SonarQube | Semgrep |
 |---|---|---|
-| Framework | Next.js 14 (App Router) | SSR, routing, API backend |
-| UI | React 18 + Tailwind CSS | Composants, interface utilisateur |
-| État global | Redux Toolkit | Watchlist, alertes, préférences |
-| Base de données | MongoDB Atlas | Persistance des données utilisateur |
-| ODM | Mongoose | Modélisation et requêtes MongoDB |
-| Auth | NextAuth.js | Authentification sécurisée |
-| Graphiques | Recharts | Visualisation des cours |
-| API externe | CoinGecko API | Prix et données crypto en temps réel |
-| Langage | TypeScript | Typage statique |
+| Exécution dans le pipeline | Analyse réussie | Scan réussi |
+| Exemple XSS | Aucune détection XSS visible dans les captures fournies | Détection d’un motif XSS potentiel (CWE-79) |
+| Autres résultats | Issue de maintenabilité S6759 | Références d’actions mutables et recommandations Docker |
 
----
+Les résultats ne signifient pas qu’un outil est toujours meilleur que l’autre. Ils dépendent des règles actives, des versions des analyseurs et du contexte du code.
 
-## Fonctionnalités
+## 6. Correction et validation
 
-### Authentification et comptes
-- Inscription et connexion sécurisées (email + mot de passe)
-- Gestion du profil utilisateur
-- Sessions persistantes avec NextAuth.js
-- Protection des routes privées (middleware Next.js)
+Pour corriger le test XSS, il faut éviter d’injecter directement une chaîne non fiable avec `dangerouslySetInnerHTML`. Pour afficher une valeur comme du texte, le composant utilise un rendu React standard :
 
-### Tableau de bord
-- Vue globale du marché (top 100 cryptos)
-- Statistiques clés : capitalisation totale, volume 24h, dominance BTC
-- Graphiques d'évolution des prix (7j, 30j, 90j, 1an)
-- Indicateurs de performance : variation en % sur 24h
-
-### Watchlist personnelle
-- Ajout et suppression de cryptos favoris
-- Tri par prix, variation, capitalisation
-- Synchronisée en base de données (persistante)
-
-### Alertes de prix
-- Création d'alertes (au-dessus / en-dessous d'un seuil)
-- Notifications en temps réel (WebSocket ou polling)
-- Historique des alertes déclenchées
-
-### Recherche et filtrage
-- Recherche par nom ou symbole
-- Filtres : catégorie, variation 24h, capitalisation
-- Résultats instantanés (debounce)
-
----
-
-## Architecture du projet
-
-```
-cryptowatch/
-├── app/                          # Next.js App Router
-│   ├── (auth)/
-│   │   ├── login/
-│   │   │   └── page.tsx
-│   │   └── register/
-│   │       └── page.tsx
-│   ├── (dashboard)/
-│   │   ├── layout.tsx
-│   │   ├── page.tsx              # Tableau de bord principal
-│   │   ├── watchlist/
-│   │   │   └── page.tsx
-│   │   ├── alerts/
-│   │   │   └── page.tsx
-│   │   └── crypto/
-│   │       └── [id]/
-│   │           └── page.tsx      # Détail d'une crypto
-│   ├── api/
-│   │   ├── auth/
-│   │   │   └── [...nextauth]/
-│   │   │       └── route.ts
-│   │   ├── watchlist/
-│   │   │   └── route.ts
-│   │   ├── alerts/
-│   │   │   └── route.ts
-│   │   └── crypto/
-│   │       └── route.ts
-│   ├── layout.tsx
-│   └── globals.css
-│
-├── components/
-│   ├── ui/                       # Composants réutilisables
-│   │   ├── Button.tsx
-│   │   ├── Card.tsx
-│   │   ├── Input.tsx
-│   │   ├── Modal.tsx
-│   │   └── Badge.tsx
-│   ├── crypto/
-│   │   ├── CryptoCard.tsx
-│   │   ├── CryptoTable.tsx
-│   │   ├── PriceChart.tsx
-│   │   └── MarketStats.tsx
-│   ├── dashboard/
-│   │   ├── DashboardHeader.tsx
-│   │   ├── WatchlistWidget.tsx
-│   │   └── AlertsWidget.tsx
-│   └── layout/
-│       ├── Navbar.tsx
-│       └── Sidebar.tsx
-│
-├── lib/
-│   ├── mongodb.ts                # Connexion MongoDB
-│   ├── auth.ts                   # Configuration NextAuth
-│   └── coingecko.ts              # Client API CoinGecko
-│
-├── models/
-│   ├── User.ts                   # Modèle Mongoose
-│   ├── Watchlist.ts
-│   └── Alert.ts
-│
-├── redux/
-│   ├── store.ts
-│   ├── slices/
-│   │   ├── watchlistSlice.ts
-│   │   ├── alertsSlice.ts
-│   │   └── userSlice.ts
-│   └── Provider.tsx
-│
-├── hooks/
-│   ├── useCryptoData.ts
-│   ├── useWatchlist.ts
-│   └── useAlerts.ts
-│
-├── types/
-│   └── index.ts                  # Types TypeScript globaux
-│
-├── .env.local                    # Variables d'environnement
-├── next.config.ts
-├── tailwind.config.ts
-└── package.json
+```tsx
+<div>{userInput}</div>
 ```
 
----
+Le composant utilise également `Readonly<Props>` pour rendre ses propriétés en lecture seule. React affiche ainsi la valeur comme du texte plutôt que de l’interpréter comme du HTML. Si l’application doit réellement afficher du HTML, celui-ci doit être nettoyé avec une bibliothèque de sanitisation adaptée.
 
-## Modèles MongoDB (Mongoose)
+Après la correction, une nouvelle analyse SonarQube a montré une Quality Gate **Passed**, zéro nouvelle issue et zéro duplication sur les nouvelles lignes. La couverture restait à 0 % avec une exigence affichée de 80 %.
 
-### User
-```typescript
-{
-  _id: ObjectId,
-  nom: String,
-  email: String (unique),
-  password: String (hashé),
-  createdAt: Date
-}
-```
+<img width="1224" height="633" alt="06-sonarqube-quality-gate-passed" src="https://github.com/user-attachments/assets/20eef1e2-ac3c-4d34-8114-4f4ae30cc125" />
 
-### Watchlist
-```typescript
-{
-  userId: ObjectId (ref: User),
-  cryptos: [String],   // ex: ["bitcoin", "ethereum"]
-  updatedAt: Date
-}
-```
 
-### Alert
-```typescript
-{
-  userId: ObjectId (ref: User),
-  cryptoId: String,
-  cryptoSymbol: String,
-  targetPrice: Number,
-  condition: "above" | "below",
-  active: Boolean,
-  triggeredAt: Date | null,
-  createdAt: Date
-}
-```
+## 7. Conclusion
 
----
-
-## Installation et démarrage
-
-### Prérequis
-- Node.js >= 18
-- Compte MongoDB Atlas (gratuit)
-- Clé API CoinGecko (optionnelle pour le plan Pro)
-
-### Étapes
-
-```bash
-# 1. Cloner le projet
-git clone https://github.com/azdin2002/cryptowatch.git
-cd cryptowatch
-
-# 2. Installer les dépendances
-npm install
-
-# 3. Configurer les variables d'environnement
-cp .env.example .env.local
-# Remplir les variables dans .env.local
-
-# 4. Lancer en développement
-npm run dev
-
-# 5. Build de production
-npm run build
-npm start
-```
-
-### Variables d'environnement (.env.local)
-
-```env
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/cryptowatch
-NEXTAUTH_SECRET=votre-secret-32-caracteres
-NEXTAUTH_URL=http://localhost:3000
-COINGECKO_API_KEY=votre-cle-api   # optionnel
-EMAIL_SERVER_HOST=smtp.gmail.com
-EMAIL_SERVER_PORT=465
-EMAIL_SERVER_USER=votre-email-smtp
-EMAIL_SERVER_PASSWORD=votre-mot-de-passe-app
-EMAIL_FROM="CryptoWatch <votre-email-smtp>"
-CRON_SECRET=votre-secret-cron
-```
-
----
-
-## Vérification automatique des alertes
-
-Les alertes email sont envoyées par l'endpoint protégé :
-
-```text
-GET /api/alerts/check
-```
-
-En production, cet endpoint refuse les requêtes sans `CRON_SECRET`. Un appel direct vers
-`https://votre-domaine.vercel.app/api/alerts/check` retourne donc `401 Unauthorized`.
-
-Pour un service cron externe comme cron-job.org, configurez l'une de ces options :
-
-```text
-https://votre-domaine.vercel.app/api/alerts/check?secret=VOTRE_CRON_SECRET
-```
-
-ou ajoutez un header HTTP :
-
-```text
-Authorization: Bearer VOTRE_CRON_SECRET
-```
-
-Si vous utilisez Vercel Cron Jobs, ajoutez `CRON_SECRET` dans les variables
-d'environnement Vercel. Vercel l'envoie automatiquement dans le header
-`Authorization: Bearer ...` pendant l'exécution du cron.
-
-Important : une alerte déclenchée devient inactive après l'envoi de l'email. Pour
-tester plusieurs fois, créez une nouvelle alerte active ou réactivez l'alerte en base.
-
----
-
-## Concepts du cours appliqués
-
-| Concept (cours) | Application dans le projet |
-|---|---|
-| `let` / `const` (ES6) | Utilisés partout — jamais `var` |
-| Arrow functions | Composants React, callbacks, hooks |
-| Destructuring | Props, réponses API, state Redux |
-| Async / Await | Appels CoinGecko API, requêtes MongoDB |
-| Modules ES6 | Import/Export de composants et utils |
-| Composants React | CryptoCard, PriceChart, Navbar... |
-| Hooks React | useState, useEffect, useSelector, useDispatch |
-| Redux Toolkit | `createSlice`, `configureStore` pour watchlist et alertes |
-| Next.js SSR | Pages rendues côté serveur pour le SEO |
-| File-Based Routing | `app/watchlist/page.tsx` → `/watchlist` |
-| API Routes Next.js | `app/api/watchlist/route.ts` → backend |
-
----
-
-## API externe — CoinGecko
-
-Base URL : `https://api.coingecko.com/api/v3`
-
-| Endpoint | Usage |
-|---|---|
-| `/coins/markets` | Liste des cryptos avec prix |
-| `/coins/{id}` | Détail d'une crypto |
-| `/coins/{id}/market_chart` | Historique des prix |
-| `/search` | Recherche de cryptos |
-| `/global` | Statistiques globales du marché |
-
----
-
-## Guide de contribution (groupe G3)
-
-```
-feature/auth          → Authentification (inscription, connexion)
-feature/dashboard     → Tableau de bord et statistiques
-feature/watchlist     → Gestion de la watchlist
-feature/alerts        → Système d'alertes
-feature/charts        → Graphiques et visualisations
-feature/search        → Recherche et filtrage
-```
-
-Chaque membre travaille sur sa branche. Pull Request obligatoire avant merge sur `main`.
-
----
-
-## Critères d'évaluation couverts
-
-- Intégration d'API externes (CoinGecko)
-- Gestion des appels asynchrones (async/await, fetch)
-- Graphiques interactifs (Recharts)
-- SSR avec Next.js (Server Side Rendering)
-- Gestion d'état global avec Redux Toolkit
-- Composants React réutilisables et dynamiques
-- Base de données MongoDB avec Mongoose
-- Authentification sécurisée
-
----
-
-*CryptoWatch — Groupe G3 — 2025-2026*
+Ce workshop a permis d’intégrer SonarQube et Semgrep dans GitHub Actions, de comparer leurs résultats sur un exemple XSS et de corriger le composant de test en supprimant l’utilisation de `dangerouslySetInnerHTML`. Les captures montrent la détection du risque par Semgrep et le résultat SonarQube après correction. La couverture de tests demeure un point à améliorer.

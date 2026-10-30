@@ -1,0 +1,155 @@
+name: CryptoWatch CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-sonar:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Build project
+        run: npm run build
+
+      - name: SonarQube Scan
+        shell: powershell
+        run: |
+          docker run --rm `
+            -e SONAR_HOST_URL="http://host.docker.internal:9000" `
+            -e SONAR_TOKEN="${{ secrets.SONAR_TOKEN }}" `
+            -v "${{ github.workspace }}:/usr/src" `
+            sonarsource/sonar-scanner-cli
+
+      - name: Semgrep SAST Scan
+        shell: powershell
+        run: |
+          docker run --rm `
+            -v "${{ github.workspace }}:/src" `
+            semgrep/semgrep `
+            semgrep scan --config auto --json --output /src/semgrep-report.json /src
+
+      - name: Upload Semgrep Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: semgrep-report.json
+          if-no-files-found: warn
+
+      # Trivy is intentionally limited to pushes on main and PRs targeting main.
+      # Other existing CI triggers (develop and the feature branch) remain unchanged.
+      - name: Build Docker image for Trivy
+        id: docker_build_trivy
+        if: ${{ github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main') }}
+        shell: powershell
+        run: |
+          $reportsDir = Join-Path $env:GITHUB_WORKSPACE "trivy-reports"
+          New-Item -ItemType Directory -Force -Path $reportsDir | Out-Null
+
+          $imageTag = "cryptowatch-ci:$env:GITHUB_SHA"
+          docker build --pull -t $imageTag .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $imageTar = Join-Path $reportsDir "cryptowatch-image.tar"
+          docker save --output $imageTar $imageTag
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Scan Docker image with Trivy (vulnerabilities and secrets)
+        id: trivy_image
+        if: ${{ github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main') }}
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $workspace = $env:GITHUB_WORKSPACE -replace '\\', '/'
+          $mount = "${workspace}:/work"
+
+          docker run --rm -v $mount aquasec/trivy:0.76.0 image `
+            --input /work/trivy-reports/cryptowatch-image.tar `
+            --scanners vuln,secret `
+            --severity HIGH,CRITICAL `
+            --format json `
+            --output /work/trivy-reports/trivy-image-report.json `
+            --exit-code 1
+
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Scan repository and Dockerfile with Trivy (misconfigurations and secrets)
+        id: trivy_repository
+        if: ${{ github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main') }}
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $workspace = $env:GITHUB_WORKSPACE -replace '\\', '/'
+          $mount = "${workspace}:/work"
+
+          docker run --rm -v $mount aquasec/trivy:0.76.0 fs `
+            --scanners misconfig,secret `
+            --severity HIGH,CRITICAL `
+            --skip-dirs /work/.git `
+            --skip-dirs /work/node_modules `
+            --skip-dirs /work/.next `
+            --skip-dirs /work/trivy-reports `
+            --format json `
+            --output /work/trivy-reports/trivy-repository-report.json `
+            --exit-code 1 `
+            /work
+
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload Trivy reports
+        if: ${{ always() && (github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main')) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-reports-${{ github.run_id }}
+          path: trivy-reports/*.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Enforce Trivy HIGH and CRITICAL security gate
+        if: ${{ always() && (github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.base_ref == 'main')) }}
+        shell: powershell
+        run: |
+          $failedScans = @()
+
+          if ("${{ steps.trivy_image.outcome }}" -ne "success") {
+            $failedScans += "Docker image scan"
+          }
+
+          if ("${{ steps.trivy_repository.outcome }}" -ne "success") {
+            $failedScans += "Repository/configuration/secrets scan"
+          }
+
+          if ($failedScans.Count -gt 0) {
+            Write-Error ("Trivy security gate failed: " + ($failedScans -join ", "))
+            exit 1
+          }
+
+          Write-Host "Trivy security gate passed: no HIGH or CRITICAL findings."

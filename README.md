@@ -1,325 +1,128 @@
-# CryptoWatch — Application de suivi des crypto-monnaies
+# Workshop 5 — Sécurité des conteneurs avec Trivy
 
-> Projet Fin de Module — Développement Front-End et Frameworks  
-> Prof. N. El Bahri — Année Universitaire 2025-2026  
-> Groupe G3
+## Informations du groupe
 
----
+**Groupe :** GR 5  
+**Étudiants :**
+- Azzeddine Salmoun
+- Wail Chairi Mahjor
+- Toufik Kharkhour
 
-## Vue d'ensemble
-
-CryptoWatch est une application web full-stack permettant aux utilisateurs de suivre l'évolution des crypto-monnaies en temps réel, consulter les tendances du marché, gérer leur portefeuille personnel et recevoir des alertes personnalisées sur leurs actifs favoris.
-
----
-
-## Stack technique
-
-| Couche | Technologie | Rôle |
-|---|---|---|
-| Framework | Next.js 14 (App Router) | SSR, routing, API backend |
-| UI | React 18 + Tailwind CSS | Composants, interface utilisateur |
-| État global | Redux Toolkit | Watchlist, alertes, préférences |
-| Base de données | MongoDB Atlas | Persistance des données utilisateur |
-| ODM | Mongoose | Modélisation et requêtes MongoDB |
-| Auth | NextAuth.js | Authentification sécurisée |
-| Graphiques | Recharts | Visualisation des cours |
-| API externe | CoinGecko API | Prix et données crypto en temps réel |
-| Langage | TypeScript | Typage statique |
+**Projet :** CryptoWatch  
+**Dépôt Docker Hub :** [azdin/cryptowatch](https://hub.docker.com/r/azdin/cryptowatch)
 
 ---
 
-## Fonctionnalités
+## 1. Objectif du workshop
 
-### Authentification et comptes
-- Inscription et connexion sécurisées (email + mot de passe)
-- Gestion du profil utilisateur
-- Sessions persistantes avec NextAuth.js
-- Protection des routes privées (middleware Next.js)
+L'objectif de ce workshop est de renforcer la sécurité d'une image Docker à l'aide de **Trivy**. Le travail consiste à analyser l'image afin de détecter les vulnérabilités connues (CVE), à interpréter les résultats en donnant la priorité aux niveaux **HIGH** et **CRITICAL**, puis à appliquer des mesures correctives.
 
-### Tableau de bord
-- Vue globale du marché (top 100 cryptos)
-- Statistiques clés : capitalisation totale, volume 24h, dominance BTC
-- Graphiques d'évolution des prix (7j, 30j, 90j, 1an)
-- Indicateurs de performance : variation en % sur 24h
+Le travail inclut également l'intégration de Trivy dans un pipeline CI/CD afin d'automatiser les contrôles de sécurité et d'empêcher la publication d'une image lorsque le seuil de sévérité défini est dépassé.
 
-### Watchlist personnelle
-- Ajout et suppression de cryptos favoris
-- Tri par prix, variation, capitalisation
-- Synchronisée en base de données (persistante)
+## 2. Environnement et outils
 
-### Alertes de prix
-- Création d'alertes (au-dessus / en-dessous d'un seuil)
-- Notifications en temps réel (WebSocket ou polling)
-- Historique des alertes déclenchées
+- **Application :** CryptoWatch
+- **Technologies :** Next.js, React, TypeScript et Node.js
+- **Conteneurisation :** Docker
+- **Image de base :** `node:22-alpine`
+- **Analyse de sécurité :** Trivy
+- **CI/CD :** GitHub Actions
+- **Registre d'images :** Docker Hub (`azdin/cryptowatch`)
 
-### Recherche et filtrage
-- Recherche par nom ou symbole
-- Filtres : catégorie, variation 24h, capitalisation
-- Résultats instantanés (debounce)
+## 3. Analyse initiale — avant correction
 
----
+Un premier scan Trivy a été effectué sur l'image Docker `cryptowatch:local`.
 
-## Architecture du projet
+Le rapport initial a identifié :
 
-```
-cryptowatch/
-├── app/                          # Next.js App Router
-│   ├── (auth)/
-│   │   ├── login/
-│   │   │   └── page.tsx
-│   │   └── register/
-│   │       └── page.tsx
-│   ├── (dashboard)/
-│   │   ├── layout.tsx
-│   │   ├── page.tsx              # Tableau de bord principal
-│   │   ├── watchlist/
-│   │   │   └── page.tsx
-│   │   ├── alerts/
-│   │   │   └── page.tsx
-│   │   └── crypto/
-│   │       └── [id]/
-│   │           └── page.tsx      # Détail d'une crypto
-│   ├── api/
-│   │   ├── auth/
-│   │   │   └── [...nextauth]/
-│   │   │       └── route.ts
-│   │   ├── watchlist/
-│   │   │   └── route.ts
-│   │   ├── alerts/
-│   │   │   └── route.ts
-│   │   └── crypto/
-│   │       └── route.ts
-│   ├── layout.tsx
-│   └── globals.css
-│
-├── components/
-│   ├── ui/                       # Composants réutilisables
-│   │   ├── Button.tsx
-│   │   ├── Card.tsx
-│   │   ├── Input.tsx
-│   │   ├── Modal.tsx
-│   │   └── Badge.tsx
-│   ├── crypto/
-│   │   ├── CryptoCard.tsx
-│   │   ├── CryptoTable.tsx
-│   │   ├── PriceChart.tsx
-│   │   └── MarketStats.tsx
-│   ├── dashboard/
-│   │   ├── DashboardHeader.tsx
-│   │   ├── WatchlistWidget.tsx
-│   │   └── AlertsWidget.tsx
-│   └── layout/
-│       ├── Navbar.tsx
-│       └── Sidebar.tsx
-│
-├── lib/
-│   ├── mongodb.ts                # Connexion MongoDB
-│   ├── auth.ts                   # Configuration NextAuth
-│   └── coingecko.ts              # Client API CoinGecko
-│
-├── models/
-│   ├── User.ts                   # Modèle Mongoose
-│   ├── Watchlist.ts
-│   └── Alert.ts
-│
-├── redux/
-│   ├── store.ts
-│   ├── slices/
-│   │   ├── watchlistSlice.ts
-│   │   ├── alertsSlice.ts
-│   │   └── userSlice.ts
-│   └── Provider.tsx
-│
-├── hooks/
-│   ├── useCryptoData.ts
-│   ├── useWatchlist.ts
-│   └── useAlerts.ts
-│
-├── types/
-│   └── index.ts                  # Types TypeScript globaux
-│
-├── .env.local                    # Variables d'environnement
-├── next.config.ts
-├── tailwind.config.ts
-└── package.json
-```
+| Niveau de sévérité | Nombre de vulnérabilités |
+|---|---:|
+| HIGH | **14** |
+| CRITICAL | **0** |
 
----
+Les vulnérabilités concernaient notamment des dépendances Node.js présentes dans l'image. L'analyse a permis d'identifier des versions vulnérables de plusieurs packages, dont `brace-expansion`, `ip-address`, `pacote`, `picomatch`, `sigstore` et `nodemailer`.
 
-## Modèles MongoDB (Mongoose)
+### Capture 1 — Scan initial (14 HIGH)
 
-### User
-```typescript
-{
-  _id: ObjectId,
-  nom: String,
-  email: String (unique),
-  password: String (hashé),
-  createdAt: Date
-}
-```
+La capture ci-dessous présente le résultat du scan avant l'application des corrections.
 
-### Watchlist
-```typescript
-{
-  userId: ObjectId (ref: User),
-  cryptos: [String],   // ex: ["bitcoin", "ethereum"]
-  updatedAt: Date
-}
-```
+![Résultat Trivy avant correction : 14 vulnérabilités HIGH](docs/screenshots/01-trivy-before-fix-14-high.png)
 
-### Alert
-```typescript
-{
-  userId: ObjectId (ref: User),
-  cryptoId: String,
-  cryptoSymbol: String,
-  targetPrice: Number,
-  condition: "above" | "below",
-  active: Boolean,
-  triggeredAt: Date | null,
-  createdAt: Date
-}
-```
+## 4. Mesures de remédiation
 
----
+Les actions suivantes ont été réalisées pour corriger les vulnérabilités et réduire la surface d'attaque de l'image :
 
-## Installation et démarrage
+1. **Mise à jour de Nodemailer :** migration de Nodemailer vers la version `10.3.1` à l'aide de l'alias npm `nodemailer-v10`, afin de conserver la compatibilité avec la configuration NextAuth existante. Les imports et les types TypeScript dans `lib/mail.ts` ont été adaptés.
+2. **Vérification des dépendances :** contrôle de l'arbre des dépendances et vérification des versions des packages vulnérables.
+3. **Durcissement de l'image Docker :** suppression du CLI npm de l'image finale de production, car il n'est pas nécessaire pour exécuter l'application déjà construite. L'application est démarrée directement avec Node.js et le point d'entrée Next.js.
+4. **Nettoyage du contexte Docker :** exclusion des fichiers et répertoires qui ne doivent pas être intégrés à l'image, notamment les fichiers d'environnement, les dépendances locales et les artefacts de développement, via `.dockerignore`.
+5. **Reconstruction de l'image :** création d'une nouvelle image Docker sans réutiliser les anciennes couches de build.
 
-### Prérequis
-- Node.js >= 18
-- Compte MongoDB Atlas (gratuit)
-- Clé API CoinGecko (optionnelle pour le plan Pro)
+Après les corrections, les contrôles locaux ont également été exécutés :
 
-### Étapes
+- `npm audit` : 0 vulnérabilité signalée ;
+- `npx tsc --noEmit` : aucune erreur TypeScript ;
+- `npm run lint` : terminé sans erreur ;
+- `npm run build` : compilation de production réussie.
 
-```bash
-# 1. Cloner le projet
-git clone https://github.com/azdin2002/cryptowatch.git
-cd cryptowatch
+## 5. Nouveau scan — après correction
 
-# 2. Installer les dépendances
-npm install
+Après la reconstruction de l'image `cryptowatch:local`, un nouveau scan Trivy a été réalisé avec le scanner de vulnérabilités et les sévérités HIGH et CRITICAL.
 
-# 3. Configurer les variables d'environnement
-cp .env.example .env.local
-# Remplir les variables dans .env.local
+| Niveau de sévérité | Avant correction | Après correction |
+|---|---:|---:|
+| HIGH | 14 | **0** |
+| CRITICAL | 0 | **0** |
 
-# 4. Lancer en développement
-npm run dev
+Le rapport final indique **0 vulnérabilité détectée** pour les cibles analysées dans ce scan.
 
-# 5. Build de production
-npm run build
-npm start
-```
+### Capture 2 — Scan après correction (0 HIGH / 0 CRITICAL)
 
-### Variables d'environnement (.env.local)
+![Résultat Trivy après correction : 0 HIGH et 0 CRITICAL](docs/screenshots/02-trivy-after-fix-0-high-0-critical.png)
 
-```env
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/cryptowatch
-NEXTAUTH_SECRET=votre-secret-32-caracteres
-NEXTAUTH_URL=http://localhost:3000
-COINGECKO_API_KEY=votre-cle-api   # optionnel
-EMAIL_SERVER_HOST=smtp.gmail.com
-EMAIL_SERVER_PORT=465
-EMAIL_SERVER_USER=votre-email-smtp
-EMAIL_SERVER_PASSWORD=votre-mot-de-passe-app
-EMAIL_FROM="CryptoWatch <votre-email-smtp>"
-CRON_SECRET=votre-secret-cron
-```
+## 6. Intégration CI/CD avec GitHub Actions
 
----
+Un workflow GitHub Actions est prévu pour automatiser les contrôles à chaque push et pull request sur la branche du workshop.
 
-## Vérification automatique des alertes
+Les principales étapes du pipeline sont :
 
-Les alertes email sont envoyées par l'endpoint protégé :
+1. Récupération du code source.
+2. Installation des dépendances avec `npm ci`.
+3. Vérifications du projet : audit npm, ESLint, TypeScript et build Next.js.
+4. Construction de l'image Docker de production.
+5. Analyse de l'image avec Trivy.
+6. Application d'un seuil de sécurité : le pipeline doit échouer lorsqu'une vulnérabilité HIGH ou CRITICAL est détectée. Les contrôles de secrets et de mauvaises configurations sont également exécutés selon la configuration du workflow.
+7. Connexion à Docker Hub et publication de l'image uniquement si les étapes précédentes réussissent.
+
+Les identifiants Docker Hub sont stockés dans les **GitHub Actions Secrets** et ne sont pas écrits en clair dans le dépôt :
+
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`
+
+L'image est destinée à être publiée avec les tags suivants :
 
 ```text
-GET /api/alerts/check
+docker.io/azdin/cryptowatch:latest
+docker.io/azdin/cryptowatch:<commit-sha>
 ```
 
-En production, cet endpoint refuse les requêtes sans `CRON_SECRET`. Un appel direct vers
-`https://votre-domaine.vercel.app/api/alerts/check` retourne donc `401 Unauthorized`.
+**État de validation :** ajouter la capture du run GitHub Actions après avoir vérifié que le workflow s'est terminé avec succès et que les tags sont visibles sur Docker Hub. Ne pas considérer la publication comme réussie avant cette vérification.
 
-Pour un service cron externe comme cron-job.org, configurez l'une de ces options :
+### Capture 3 — Pipeline GitHub Actions
 
-```text
-https://votre-domaine.vercel.app/api/alerts/check?secret=VOTRE_CRON_SECRET
-```
+Ajouter ici la capture d'écran du pipeline GitHub Actions montrant les étapes de build, scan Trivy et publication Docker Hub réussies.
 
-ou ajoutez un header HTTP :
+![Exécution GitHub Actions — Workshop 5 GR5](docs/screenshots/03-github-actions-pipeline.png)
 
-```text
-Authorization: Bearer VOTRE_CRON_SECRET
-```
+## 7. Conclusion
 
-Si vous utilisez Vercel Cron Jobs, ajoutez `CRON_SECRET` dans les variables
-d'environnement Vercel. Vercel l'envoie automatiquement dans le header
-`Authorization: Bearer ...` pendant l'exécution du cron.
+Ce workshop a permis d'appliquer une démarche **DevSecOps** au projet CryptoWatch : les contrôles de sécurité sont intégrés au processus de livraison de l'image Docker, au lieu d'être exécutés uniquement de manière manuelle.
 
-Important : une alerte déclenchée devient inactive après l'envoi de l'email. Pour
-tester plusieurs fois, créez une nouvelle alerte active ou réactivez l'alerte en base.
+Le scan initial avait identifié 14 vulnérabilités HIGH. Après la mise à jour des dépendances et le durcissement de l'image de production, le scan final a indiqué 0 vulnérabilité HIGH et 0 CRITICAL dans son périmètre d'analyse.
+
+L'intégration de Trivy dans GitHub Actions permet d'automatiser ce contrôle et de bloquer la publication d'une image si le seuil de sécurité défini n'est pas respecté. La publication effective sur Docker Hub doit être confirmée par un run réussi du pipeline et par la présence des tags dans le dépôt `azdin/cryptowatch`.
 
 ---
 
-## Concepts du cours appliqués
-
-| Concept (cours) | Application dans le projet |
-|---|---|
-| `let` / `const` (ES6) | Utilisés partout — jamais `var` |
-| Arrow functions | Composants React, callbacks, hooks |
-| Destructuring | Props, réponses API, state Redux |
-| Async / Await | Appels CoinGecko API, requêtes MongoDB |
-| Modules ES6 | Import/Export de composants et utils |
-| Composants React | CryptoCard, PriceChart, Navbar... |
-| Hooks React | useState, useEffect, useSelector, useDispatch |
-| Redux Toolkit | `createSlice`, `configureStore` pour watchlist et alertes |
-| Next.js SSR | Pages rendues côté serveur pour le SEO |
-| File-Based Routing | `app/watchlist/page.tsx` → `/watchlist` |
-| API Routes Next.js | `app/api/watchlist/route.ts` → backend |
-
----
-
-## API externe — CoinGecko
-
-Base URL : `https://api.coingecko.com/api/v3`
-
-| Endpoint | Usage |
-|---|---|
-| `/coins/markets` | Liste des cryptos avec prix |
-| `/coins/{id}` | Détail d'une crypto |
-| `/coins/{id}/market_chart` | Historique des prix |
-| `/search` | Recherche de cryptos |
-| `/global` | Statistiques globales du marché |
-
----
-
-## Guide de contribution (groupe G3)
-
-```
-feature/auth          → Authentification (inscription, connexion)
-feature/dashboard     → Tableau de bord et statistiques
-feature/watchlist     → Gestion de la watchlist
-feature/alerts        → Système d'alertes
-feature/charts        → Graphiques et visualisations
-feature/search        → Recherche et filtrage
-```
-
-Chaque membre travaille sur sa branche. Pull Request obligatoire avant merge sur `main`.
-
----
-
-## Critères d'évaluation couverts
-
-- Intégration d'API externes (CoinGecko)
-- Gestion des appels asynchrones (async/await, fetch)
-- Graphiques interactifs (Recharts)
-- SSR avec Next.js (Server Side Rendering)
-- Gestion d'état global avec Redux Toolkit
-- Composants React réutilisables et dynamiques
-- Base de données MongoDB avec Mongoose
-- Authentification sécurisée
-
----
-
-*CryptoWatch — Groupe G3 — 2025-2026*
+**Branche Git du workshop :** `workshop5-GR5`  
+**Dépôt Docker Hub :** https://hub.docker.com/r/azdin/cryptowatch

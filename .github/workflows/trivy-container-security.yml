@@ -1,0 +1,82 @@
+name: Container Security - Trivy
+
+on:
+  push:
+    branches:
+      - workshop4-GR4
+  pull_request:
+    branches:
+      - workshop4-GR4
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-scan:
+    name: Build and scan CryptoWatch image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Check TypeScript
+        run: npx tsc --noEmit
+
+      - name: Build Next.js application
+        run: npm run build
+
+      - name: Build Docker image
+        run: docker build --pull -t cryptowatch:${{ github.sha }} .
+
+      - name: Scan Docker image for HIGH and CRITICAL vulnerabilities and secrets
+        id: trivy-image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: cryptowatch:${{ github.sha }}
+          scanners: vuln,secret
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          output: trivy-image-report.txt
+          timeout: 15m
+
+      - name: Scan repository configuration (including Dockerfile)
+        id: trivy-config
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: misconfig
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+          output: trivy-config-report.txt
+          timeout: 15m
+
+      - name: Upload Trivy reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-security-reports
+          path: |
+            trivy-image-report.txt
+            trivy-config-report.txt
+          if-no-files-found: ignore
+          retention-days: 14

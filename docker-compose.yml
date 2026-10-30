@@ -41,6 +41,19 @@ services:
       - sonarqube_logs:/opt/sonarqube/logs
       - sonarqube_extensions:/opt/sonarqube/extensions
 
+  app:
+    image: cryptowatch:local
+    container_name: cryptowatch-app
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "3002:3000"
+    env_file:
+      - .env.local
+    depends_on:
+      - mongodb
+
 volumes:
   mongodb_data:
   sonarqube_data:

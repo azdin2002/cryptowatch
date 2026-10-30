@@ -5,6 +5,7 @@ import {
   CoinGeckoApiError,
   getGlobalStats,
   getMarkets,
+  MAX_MARKETS_PER_PAGE,
 } from "@/lib/coingecko";
 import type { CryptoMarket, GlobalMarketData } from "@/types";
 
@@ -51,7 +52,7 @@ const DashboardError = ({ message }: { message: string }) => (
 
 const getDashboardData = async (): Promise<DashboardData> => {
   const [cryptos, globalStats] = await Promise.all([
-    getMarkets(1, { revalidate: 60 }),
+    getMarkets(1, { revalidate: 60 }, MAX_MARKETS_PER_PAGE),
     getGlobalStats({ revalidate: 60 }),
   ]);
 
@@ -145,7 +146,10 @@ export default async function DashboardPage() {
         })}
       </section>
 
-      <DashboardCryptoPanel initialCryptos={cryptos} />
+      <DashboardCryptoPanel
+        initialCryptos={cryptos}
+        totalAssets={stats.active_cryptocurrencies}
+      />
     </>
   );
 }

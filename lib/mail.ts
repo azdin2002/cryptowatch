@@ -1,5 +1,5 @@
-import nodemailer from "nodemailer";
-import type SMTPTransport from "nodemailer/lib/smtp-transport";
+import nodemailer from "nodemailer-v10";
+import type { SentMessageInfo, Transporter } from "nodemailer-v10";
 import type { AlertCondition } from "@/types";
 
 interface MailConfig {
@@ -24,8 +24,7 @@ export interface SendAlertEmailResult {
   messageId: string;
 }
 
-let cachedTransporter: nodemailer.Transporter<SMTPTransport.SentMessageInfo> | null =
-  null;
+let cachedTransporter: Transporter<SentMessageInfo> | null = null;
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -72,7 +71,7 @@ const getMailConfig = (): MailConfig => {
   };
 };
 
-const getTransporter = (): nodemailer.Transporter<SMTPTransport.SentMessageInfo> => {
+const getTransporter = (): Transporter<SentMessageInfo> => {
   if (cachedTransporter) {
     return cachedTransporter;
   }

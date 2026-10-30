@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   CoinGeckoApiError,
+  MAX_MARKETS_PER_PAGE,
   getCoinDetail,
   getGlobalStats,
   getMarketChart,
@@ -66,6 +67,17 @@ const getPage = (request: NextRequest): number => {
   return Number.isInteger(page) && page > 0 ? page : 1;
 };
 
+const getPerPage = (request: NextRequest): number => {
+  const rawPerPage = request.nextUrl.searchParams.get("perPage");
+  const perPage = rawPerPage ? Number(rawPerPage) : MAX_MARKETS_PER_PAGE;
+
+  if (!Number.isInteger(perPage) || perPage <= 0) {
+    return MAX_MARKETS_PER_PAGE;
+  }
+
+  return Math.min(perPage, MAX_MARKETS_PER_PAGE);
+};
+
 const getCryptoIds = (request: NextRequest): string[] => {
   const ids = request.nextUrl.searchParams.get("ids")?.trim();
 
@@ -109,7 +121,7 @@ const handleMarkets = async (
   const markets =
     ids.length > 0
       ? await getMarketsByIds(ids, options)
-      : await getMarkets(getPage(request), options);
+      : await getMarkets(getPage(request), options, getPerPage(request));
 
   return jsonResponse<CryptoMarket[]>(markets, 200);
 };

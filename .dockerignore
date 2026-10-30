@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+actions-runner
+zap-reports
+.env*
+!.env.example
+npm-debug.log*
+actions-runner/
+trivy-reports/

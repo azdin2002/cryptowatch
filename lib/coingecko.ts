@@ -3,6 +3,8 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRIES = 2;
 const DEFAULT_REVALIDATE_SECONDS = 60;
 const INITIAL_RETRY_DELAY_MS = 1_000;
+const DEFAULT_MARKETS_PER_PAGE = 100;
+export const MAX_MARKETS_PER_PAGE = 250;
 
 type NextFetchOptions = RequestInit & {
   next?: {
@@ -429,13 +431,14 @@ const coinGeckoFetch = async <T>(
 export const getMarkets = async (
   page = 1,
   options?: CoinGeckoRequestOptions,
+  perPage = DEFAULT_MARKETS_PER_PAGE,
 ): Promise<CoinMarket[]> =>
   coinGeckoFetch<CoinMarket[]>(
     "/coins/markets",
     {
       vs_currency: "usd",
       order: "market_cap_desc",
-      per_page: 100,
+      per_page: Math.min(Math.max(perPage, 1), MAX_MARKETS_PER_PAGE),
       page,
       sparkline: false,
       price_change_percentage: "24h",

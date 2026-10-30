@@ -1,73 +1,128 @@
-# Workshop 2 — Sécurité du code source : SonarQube et Semgrep
+# Workshop 5 — Sécurité des conteneurs avec Trivy
 
-**Projet :** CryptoWatch (Next.js / TypeScript)  
-**Groupe :** GR 5 — Azzeddine Salmoun, Toufik Kharkhor et Wail Chairi Mahjor  
-**Thème :** Analyse statique de sécurité (SAST) avec GitHub Actions
+## Informations du groupe
 
-## 1. Objectif
+**Groupe :** GR 5  
+**Étudiants :**
+- Azzeddine Salmoun
+- Wail Chairi Mahjor
+- Toufik Kharkhour
 
-L’objectif de ce workshop est d’intégrer l’analyse statique de sécurité (SAST) dans CryptoWatch, d’exécuter SonarQube et Semgrep dans un pipeline GitHub Actions, puis de comparer les résultats obtenus avant et après l’introduction d’un exemple de code volontairement vulnérable.
+**Projet :** CryptoWatch  
+**Dépôt Docker Hub :** [azdin/cryptowatch](https://hub.docker.com/r/azdin/cryptowatch)
 
-## 2. Environnement utilisé
+---
 
-- Projet : CryptoWatch (Next.js / TypeScript).
-- Outils : SonarQube Community, Semgrep, Docker et Git.
-- Intégration continue : GitHub Actions avec un runner self-hosted Windows.
-- Le workflow installe les dépendances, exécute ESLint et la compilation Next.js, puis lance l’analyse SonarQube et le scan Semgrep.
-- Le rapport Semgrep est enregistré au format JSON et publié comme artefact GitHub Actions.
+## 1. Objectif du workshop
 
-## 3. Résultats SonarQube
+L'objectif de ce workshop est de renforcer la sécurité d'une image Docker à l'aide de **Trivy**. Le travail consiste à analyser l'image afin de détecter les vulnérabilités connues (CVE), à interpréter les résultats en donnant la priorité aux niveaux **HIGH** et **CRITICAL**, puis à appliquer des mesures correctives.
 
-Lors de l’analyse initiale, la Quality Gate était passée. Le tableau de bord indiquait 0 problème de sécurité déclaré, 4 problèmes de fiabilité, 22 problèmes de maintenabilité, 2,2 % de duplication et 0 % de couverture.
+Le travail inclut également l'intégration de Trivy dans un pipeline CI/CD afin d'automatiser les contrôles de sécurité et d'empêcher la publication d'une image lorsque le seuil de sévérité défini est dépassé.
 
-<img width="610" height="315" alt="01-sonarqube-dashboard-initial" src="https://github.com/user-attachments/assets/edba94ce-94a4-4499-91d5-111d705cf748" />
+## 2. Environnement et outils
 
+- **Application :** CryptoWatch
+- **Technologies :** Next.js, React, TypeScript et Node.js
+- **Conteneurisation :** Docker
+- **Image de base :** `node:22-alpine`
+- **Analyse de sécurité :** Trivy
+- **CI/CD :** GitHub Actions
+- **Registre d'images :** Docker Hub (`azdin/cryptowatch`)
 
-Après l’ajout du composant de test `SastVulnerabilityLab.tsx`, SonarQube a signalé une issue de maintenabilité (règle TypeScript S6759 : rendre les propriétés du composant en lecture seule). La capture disponible ne montre pas de détection XSS par SonarQube. La Quality Gate du nouveau code a échoué avec une nouvelle issue et une couverture de 0 % sur les nouvelles lignes.
+## 3. Analyse initiale — avant correction
 
-<img width="658" height="364" alt="02-sonarqube-maintainability-issue" src="https://github.com/user-attachments/assets/20317838-fa2d-4c5f-a5fa-c5431cad860b" />
+Un premier scan Trivy a été effectué sur l'image Docker `cryptowatch:local`.
 
+Le rapport initial a identifié :
 
-<img width="1456" height="757" alt="03-sonarqube-quality-gate-new-code" src="https://github.com/user-attachments/assets/91c3347a-fadc-429f-8db8-2da64a124a62" />
+| Niveau de sévérité | Nombre de vulnérabilités |
+|---|---:|
+| HIGH | **14** |
+| CRITICAL | **0** |
 
+Les vulnérabilités concernaient notamment des dépendances Node.js présentes dans l'image. L'analyse a permis d'identifier des versions vulnérables de plusieurs packages, dont `brace-expansion`, `ip-address`, `pacote`, `picomatch`, `sigstore` et `nodemailer`.
 
-## 4. Test de vulnérabilité et résultats Semgrep
+### Capture 1 — Scan initial (14 HIGH)
 
-Un composant isolé, `SastVulnerabilityLab.tsx`, a été ajouté sur la branche de test `test/sast-vulnerabilities`. La version vulnérable utilisait `dangerouslySetInnerHTML` avec une valeur `userInput`. Si cette valeur contient du HTML non fiable, ce modèle peut entraîner une vulnérabilité Cross-Site Scripting (XSS).
+La capture ci-dessous présente le résultat du scan avant l'application des corrections.
 
-Semgrep a détecté ce motif et signalé un risque potentiel de XSS associé à **CWE-79**. Le scan affiché a terminé avec succès et a analysé 69 fichiers. L’artefact JSON contient également des avertissements concernant les références d’actions GitHub mutables et des recommandations de sécurité pour Docker Compose.
+![Résultat Trivy avant correction : 14 vulnérabilités HIGH](docs/screenshots/01-trivy-before-fix-14-high.png)
 
-<img width="614" height="426" alt="04-semgrep-scan-summary" src="https://github.com/user-attachments/assets/ab12a462-8254-4751-a91d-105f6ef100cc" />
+## 4. Mesures de remédiation
 
+Les actions suivantes ont été réalisées pour corriger les vulnérabilités et réduire la surface d'attaque de l'image :
 
-<img width="1360" height="597" alt="05-semgrep-xss-cwe79-detail" src="https://github.com/user-attachments/assets/31d3e3ad-5c2a-4a32-89c0-3af310031515" />
+1. **Mise à jour de Nodemailer :** migration de Nodemailer vers la version `10.3.1` à l'aide de l'alias npm `nodemailer-v10`, afin de conserver la compatibilité avec la configuration NextAuth existante. Les imports et les types TypeScript dans `lib/mail.ts` ont été adaptés.
+2. **Vérification des dépendances :** contrôle de l'arbre des dépendances et vérification des versions des packages vulnérables.
+3. **Durcissement de l'image Docker :** suppression du CLI npm de l'image finale de production, car il n'est pas nécessaire pour exécuter l'application déjà construite. L'application est démarrée directement avec Node.js et le point d'entrée Next.js.
+4. **Nettoyage du contexte Docker :** exclusion des fichiers et répertoires qui ne doivent pas être intégrés à l'image, notamment les fichiers d'environnement, les dépendances locales et les artefacts de développement, via `.dockerignore`.
+5. **Reconstruction de l'image :** création d'une nouvelle image Docker sans réutiliser les anciennes couches de build.
 
+Après les corrections, les contrôles locaux ont également été exécutés :
 
-## 5. Comparaison des outils
+- `npm audit` : 0 vulnérabilité signalée ;
+- `npx tsc --noEmit` : aucune erreur TypeScript ;
+- `npm run lint` : terminé sans erreur ;
+- `npm run build` : compilation de production réussie.
 
-| Élément observé | SonarQube | Semgrep |
-|---|---|---|
-| Exécution dans le pipeline | Analyse réussie | Scan réussi |
-| Exemple XSS | Aucune détection XSS visible dans les captures fournies | Détection d’un motif XSS potentiel (CWE-79) |
-| Autres résultats | Issue de maintenabilité S6759 | Références d’actions mutables et recommandations Docker |
+## 5. Nouveau scan — après correction
 
-Les résultats ne signifient pas qu’un outil est toujours meilleur que l’autre. Ils dépendent des règles actives, des versions des analyseurs et du contexte du code.
+Après la reconstruction de l'image `cryptowatch:local`, un nouveau scan Trivy a été réalisé avec le scanner de vulnérabilités et les sévérités HIGH et CRITICAL.
 
-## 6. Correction et validation
+| Niveau de sévérité | Avant correction | Après correction |
+|---|---:|---:|
+| HIGH | 14 | **0** |
+| CRITICAL | 0 | **0** |
 
-Pour corriger le test XSS, il faut éviter d’injecter directement une chaîne non fiable avec `dangerouslySetInnerHTML`. Pour afficher une valeur comme du texte, le composant utilise un rendu React standard :
+Le rapport final indique **0 vulnérabilité détectée** pour les cibles analysées dans ce scan.
 
-```tsx
-<div>{userInput}</div>
+### Capture 2 — Scan après correction (0 HIGH / 0 CRITICAL)
+
+![Résultat Trivy après correction : 0 HIGH et 0 CRITICAL](docs/screenshots/02-trivy-after-fix-0-high-0-critical.png)
+
+## 6. Intégration CI/CD avec GitHub Actions
+
+Un workflow GitHub Actions est prévu pour automatiser les contrôles à chaque push et pull request sur la branche du workshop.
+
+Les principales étapes du pipeline sont :
+
+1. Récupération du code source.
+2. Installation des dépendances avec `npm ci`.
+3. Vérifications du projet : audit npm, ESLint, TypeScript et build Next.js.
+4. Construction de l'image Docker de production.
+5. Analyse de l'image avec Trivy.
+6. Application d'un seuil de sécurité : le pipeline doit échouer lorsqu'une vulnérabilité HIGH ou CRITICAL est détectée. Les contrôles de secrets et de mauvaises configurations sont également exécutés selon la configuration du workflow.
+7. Connexion à Docker Hub et publication de l'image uniquement si les étapes précédentes réussissent.
+
+Les identifiants Docker Hub sont stockés dans les **GitHub Actions Secrets** et ne sont pas écrits en clair dans le dépôt :
+
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`
+
+L'image est destinée à être publiée avec les tags suivants :
+
+```text
+docker.io/azdin/cryptowatch:latest
+docker.io/azdin/cryptowatch:<commit-sha>
 ```
 
-Le composant utilise également `Readonly<Props>` pour rendre ses propriétés en lecture seule. React affiche ainsi la valeur comme du texte plutôt que de l’interpréter comme du HTML. Si l’application doit réellement afficher du HTML, celui-ci doit être nettoyé avec une bibliothèque de sanitisation adaptée.
+**État de validation :** ajouter la capture du run GitHub Actions après avoir vérifié que le workflow s'est terminé avec succès et que les tags sont visibles sur Docker Hub. Ne pas considérer la publication comme réussie avant cette vérification.
 
-Après la correction, une nouvelle analyse SonarQube a montré une Quality Gate **Passed**, zéro nouvelle issue et zéro duplication sur les nouvelles lignes. La couverture restait à 0 % avec une exigence affichée de 80 %.
+### Capture 3 — Pipeline GitHub Actions
 
-<img width="1224" height="633" alt="06-sonarqube-quality-gate-passed" src="https://github.com/user-attachments/assets/20eef1e2-ac3c-4d34-8114-4f4ae30cc125" />
+Ajouter ici la capture d'écran du pipeline GitHub Actions montrant les étapes de build, scan Trivy et publication Docker Hub réussies.
 
+![Exécution GitHub Actions — Workshop 5 GR5](docs/screenshots/03-github-actions-pipeline.png)
 
 ## 7. Conclusion
 
-Ce workshop a permis d’intégrer SonarQube et Semgrep dans GitHub Actions, de comparer leurs résultats sur un exemple XSS et de corriger le composant de test en supprimant l’utilisation de `dangerouslySetInnerHTML`. Les captures montrent la détection du risque par Semgrep et le résultat SonarQube après correction. La couverture de tests demeure un point à améliorer.
+Ce workshop a permis d'appliquer une démarche **DevSecOps** au projet CryptoWatch : les contrôles de sécurité sont intégrés au processus de livraison de l'image Docker, au lieu d'être exécutés uniquement de manière manuelle.
+
+Le scan initial avait identifié 14 vulnérabilités HIGH. Après la mise à jour des dépendances et le durcissement de l'image de production, le scan final a indiqué 0 vulnérabilité HIGH et 0 CRITICAL dans son périmètre d'analyse.
+
+L'intégration de Trivy dans GitHub Actions permet d'automatiser ce contrôle et de bloquer la publication d'une image si le seuil de sécurité défini n'est pas respecté. La publication effective sur Docker Hub doit être confirmée par un run réussi du pipeline et par la présence des tags dans le dépôt `azdin/cryptowatch`.
+
+---
+
+**Branche Git du workshop :** `workshop5-GR5`  
+**Dépôt Docker Hub :** https://hub.docker.com/r/azdin/cryptowatch

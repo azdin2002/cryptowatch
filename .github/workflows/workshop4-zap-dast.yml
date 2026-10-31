@@ -1,0 +1,158 @@
+name: Workshop 4 - OWASP ZAP DAST
+
+on:
+  push:
+    branches:
+      - main
+      - workshop4-GR5
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      run_active_scan:
+        description: 'Run optional active ZAP scan against the temporary CI test container only'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workshop4-zap-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zap-dast:
+    name: Build, test and scan CryptoWatch with ZAP
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check dependency vulnerabilities
+        run: npm audit --audit-level=high
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Check TypeScript
+        run: npx tsc --noEmit
+
+      - name: Build Next.js application
+        run: npm run build
+
+      - name: Prepare ZAP reports directory
+        run: mkdir -p zap-reports
+
+      - name: Build Docker image for DAST
+        run: docker build --pull -t cryptowatch-zap:${GITHUB_SHA} .
+
+      - name: Create isolated Docker network
+        run: docker network create zap-net
+
+      - name: Start temporary MongoDB for test environment
+        run: |
+          docker run -d \
+            --name zap-mongo \
+            --network zap-net \
+            mongo:7
+
+          for attempt in $(seq 1 30); do
+            if docker exec zap-mongo mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' 2>/dev/null | grep -q '1'; then
+              echo 'MongoDB is ready.'
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo 'MongoDB did not become ready in time.'
+          docker logs zap-mongo
+          exit 1
+
+      - name: Start CryptoWatch test container
+        run: |
+          docker run -d \
+            --name cryptowatch-zap \
+            --network zap-net \
+            -p 3002:3000 \
+            -e NODE_ENV=production \
+            -e MONGODB_URI='mongodb://zap-mongo:27017/cryptowatch' \
+            -e NEXTAUTH_URL='http://cryptowatch-zap:3000' \
+            -e NEXTAUTH_SECRET='zap-ci-only-placeholder-secret-not-for-production' \
+            -e CRON_SECRET='zap-ci-only-placeholder-cron-secret' \
+            cryptowatch-zap:${GITHUB_SHA}
+
+      - name: Wait for CryptoWatch to become available
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3002/ > /dev/null; then
+              echo 'CryptoWatch is responding on port 3002.'
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo 'CryptoWatch did not become ready in time. Container logs:'
+          docker logs cryptowatch-zap
+          exit 1
+
+      - name: Run OWASP ZAP Baseline scan (passive)
+        run: |
+          docker run --rm \
+            --network zap-net \
+            -v "$GITHUB_WORKSPACE/zap-reports:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+              -t http://cryptowatch-zap:3000 \
+              -m 2 \
+              -r zap-baseline-report.html \
+              -J zap-baseline-report.json \
+              -w zap-baseline-report.md \
+              -I
+
+      - name: Run optional OWASP ZAP Full scan (active)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_active_scan }}
+        run: |
+          docker run --rm \
+            --network zap-net \
+            -v "$GITHUB_WORKSPACE/zap-reports:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-full-scan.py \
+              -t http://cryptowatch-zap:3000 \
+              -m 3 \
+              -r zap-full-report.html \
+              -J zap-full-report.json \
+              -w zap-full-report.md \
+              -I
+
+      - name: Upload ZAP reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-dast-reports-${{ github.run_id }}
+          path: zap-reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Show CryptoWatch container logs if scan job failed
+        if: failure()
+        run: docker logs cryptowatch-zap || true
+
+      - name: Stop temporary test containers
+        if: always()
+        run: |
+          docker rm -f cryptowatch-zap zap-mongo 2>/dev/null || true
+          docker network rm zap-net 2>/dev/null || true
